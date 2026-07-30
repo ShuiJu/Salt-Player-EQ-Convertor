@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>椒盐音乐EQ配置转换器</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            gap: 16px;
+        }
+        h1 { font-size: 1.5rem; color: #ff6b6b; margin-bottom: 4px; }
+        .meta-row {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .meta-row label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #aaa;
+            font-size: 0.9rem;
+        }
+        .meta-row input {
+            width: 200px;
+            padding: 8px 12px;
+            border: 1px solid #444;
+            border-radius: 6px;
+            background: #16213e;
+            color: #e0e0e0;
+            font-size: 0.95rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .meta-row input:focus { border-color: #ff6b6b; }
+        #convertBtn {
+            padding: 10px 32px;
+            font-size: 1rem;
+            font-weight: bold;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            background: #ff6b6b;
+            color: #fff;
+            transition: background 0.2s, transform 0.1s;
+        }
+        #convertBtn:hover { background: #e55a5a; }
+        #convertBtn:active { transform: scale(0.97); }
+        .container {
+            display: flex;
+            gap: 20px;
+            width: 100%;
+            max-width: 1400px;
+            flex: 1;
+        }
+        .panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .panel label {
+            font-size: 0.9rem;
+            color: #aaa;
+            font-weight: 500;
+        }
+        .panel textarea {
+            flex: 1;
+            min-height: 500px;
+            padding: 14px;
+            border: 1px solid #333;
+            border-radius: 8px;
+            background: #16213e;
+            color: #e0e0e0;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            resize: none;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .panel textarea:focus { border-color: #ff6b6b; }
+        #rightTextarea { background: #1a2744; }
+        #errorMsg {
+            color: #ff6b6b;
+            font-size: 0.85rem;
+            text-align: center;
+            min-height: 20px;
+        }
+        .success { color: #4ecca3 !important; }
+    </style>
+</head>
+<body>
+    <h1>椒盐音乐EQ配置转换器</h1>
+    <div class="meta-row">
+        <label>标题 <input type="text" id="titleInput" placeholder="耳机名称"></label>
+        <label>作者 <input type="text" id="authorInput" placeholder="作者名"></label>
+        <button id="convertBtn">立刻转换</button>
+    </div>
+    <div id="errorMsg"></div>
+    <div class="container">
+        <div class="panel">
+            <label>输入（左侧文本框 - 粘贴原始EQ配置）</label>
+            <textarea id="leftTextarea" placeholder="在此粘贴EQ滤波器配置...&#10;例如：&#10;Preamp: 0.0 dB&#10;Filter 1: ON PK Fc 1750 Hz Gain -4.0 dB Q 1.800"></textarea>
+        </div>
+        <div class="panel">
+            <label>输出（右侧文本框 - Salt Player EQ JSON格式）</label>
+            <textarea id="rightTextarea" readonly placeholder="转换结果将显示在这里..."></textarea>
+        </div>
+    </div>
+
+    <script>
+        const leftTextarea = document.getElementById('leftTextarea');
+        const rightTextarea = document.getElementById('rightTextarea');
+        const titleInput = document.getElementById('titleInput');
+        const authorInput = document.getElementById('authorInput');
+        const convertBtn = document.getElementById('convertBtn');
+        const errorMsg = document.getElementById('errorMsg');
+
+        function convert() {
+            errorMsg.textContent = '';
+            errorMsg.className = '';
+            rightTextarea.value = '';
+
+            const input = leftTextarea.value.trim();
+            if (!input) {
+                errorMsg.textContent = '请先在左侧文本框粘贴EQ配置';
+                return;
+            }
+
+            const name = titleInput.value.trim();
+            const author = authorInput.value.trim();
+
+            const lines = input.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+            let preamp = null;
+            const items = [];
+
+            for (const line of lines) {
+                if (line.toLowerCase().startsWith('preamp:')) {
+                    const match = line.match(/Preamp:\s*([-\d.]+)\s*dB/i);
+                    if (match) {
+                        preamp = parseFloat(match[1]);
+                    }
+                    continue;
+                }
+
+                const filterMatch = line.match(/Filter\s+\d+:\s+(ON|OFF)\s+(\w+)\s+Fc\s+([\d.]+)\s+Hz\s+Gain\s+([-\d.]+)\s+dB\s+Q\s+([\d.]+)/i);
+                if (!filterMatch) continue;
+
+                const [, state, type, freq, gain, q] = filterMatch;
+                const upperType = type.toUpperCase();
+
+                if (upperType !== 'PK') {
+                    const gainVal = parseFloat(gain);
+                    if (gainVal !== 0.0) {
+                        errorMsg.textContent = `错误：检测到非PK类型的非零增益滤波器 → "${line}"。仅支持Peak(PK)类型，请使用ALL PK版本。`;
+                        return;
+                    }
+                    continue;
+                }
+
+                if (state.toUpperCase() === 'OFF') continue;
+
+                items.push({
+                    F: parseFloat(freq),
+                    G: parseFloat(gain),
+                    Q: parseFloat(q)
+                });
+            }
+
+            const result = {
+                preamp: preamp !== null ? preamp : 0,
+                author: author || '',
+                items: items,
+                name: name || ''
+            };
+
+            rightTextarea.value = JSON.stringify(result);
+            errorMsg.textContent = '转换成功！';
+            errorMsg.className = 'success';
+        }
+
+        convertBtn.addEventListener('click', convert);
+
+        leftTextarea.addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 'Enter') {
+                e.preventDefault();
+                convert();
+            }
+        });
+    </script>
+</body>
+</html>
